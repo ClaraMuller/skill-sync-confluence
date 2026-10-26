@@ -259,8 +259,8 @@ matches the page on pull). Don't create a separate report file.
   `references/confluence-export-example.md` are a worked example of every
   supported element (TOC, separators, headings, rich text, a date, tables,
   syntax-highlighted code blocks, code block settings, an expand section,
-  lists, an image, a 3-column layout, 3 panel types, a blockquote, and a
-  task list)
+  lists, an image, a 3-column layout, 3 panel types, a blockquote, a task
+  list, emojis, and status lozenges)
   round-tripped through both scripts — use them to sanity check the scripts
   still behave after any change.
 
@@ -284,5 +284,5 @@ next push. Step 3's markdown diff does not show these losses.
 
 Layouts (type, columns, widths), merged cells, lists in table cells,
 mentions, status, emoji, text color, underline and dates round-trip
-losslessly. The real Confluence markup for mentions, status and emoji
-hasn't been checked against a live page yet.
+losslessly. Status and emoji are verified against the reference page;
+the real Confluence markup for mentions hasn't been checked yet.

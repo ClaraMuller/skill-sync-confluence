@@ -133,3 +133,11 @@ I want to propose a multiple choices for a choice:
 - [ ] Option 1
 - [ ] Option 2
 - [ ] Option 3
+
+---
+
+Adding a lots of emojis <span data-emoji-id="atlassian-smile" data-emoji-text=":smile:" data-shortname=":smile:" data-type="emoji">:smile:</span> <span data-emoji-id="atlassian-check_mark" data-emoji-text=":check_mark:" data-shortname=":check_mark:" data-type="emoji">:check_mark:</span> <span data-emoji-id="1f534" data-emoji-text="🔴" data-shortname=":red_circle:" data-type="emoji">🔴</span> <span data-emoji-id="274c" data-emoji-text="❌" data-shortname=":x:" data-type="emoji">❌</span> <span data-emoji-id="2764" data-emoji-text="❤️" data-shortname=":heart:" data-type="emoji">❤️</span> <span data-emoji-id="1faf6" data-emoji-text="🫶" data-shortname=":heart_hands:" data-type="emoji">🫶</span>
+
+---
+
+Adding some status: <span data-color="neutral" data-status-style="mixedCase" data-type="status">COUCOU</span> <span data-color="neutral" data-status-style="mixedCase" data-type="status">I am happy</span> <span data-color="blue" data-status-style="mixedCase" data-type="status">HOW ARE YOU ?</span>

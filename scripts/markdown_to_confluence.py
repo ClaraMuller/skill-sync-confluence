@@ -104,7 +104,9 @@ def _replace_tasklists(text: str, replacements: dict) -> str:
             )
         token = _token()
         replacements[token] = '<ul data-type="task-list">' + "".join(items) + "</ul>"
-        return token
+        # Blank lines around the token: a "---" right after it would
+        # otherwise make it a setext heading.
+        return f"\n\n{token}\n\n"
 
     return _TASK_BLOCK_RE.sub(repl, text)
 

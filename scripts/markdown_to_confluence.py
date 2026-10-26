@@ -3,7 +3,7 @@
 hand-edited from it) back into Confluence HTML+ suitable for
 updateConfluenceContent with body format "html".
 
-Reverses the 6 special-case markers that confluence_to_markdown.py inserts,
+Reverses the special-case markers that confluence_to_markdown.py inserts,
 reconstructing the original Confluence node instead of losing it:
 
 - table of contents comment -> fresh TOC extension div
@@ -11,9 +11,16 @@ reconstructing the original Confluence node instead of losing it:
 - expand section markers     -> <details><summary>...</summary>...</details>,
                                  re-converting the (possibly edited) inner
                                  markdown back to HTML
-- layout section markers     -> <section data-type="layout-N-equal"> with one
-                                 <div data-type="column"> per column,
-                                 re-converting each column's markdown
+- layout section markers     -> <section data-type="{layout type}"> with one
+                                 <div data-type="column" data-width="{width}">
+                                 per column marker, re-converting each
+                                 column's markdown (a file without column
+                                 markers takes one column per paragraph)
+
+Container content (expand, layout column, panel) is converted with the full
+marker handling, so containers can nest. Raw HTML the pull kept (complex
+tables, underline, dates, mentions, status, emoji, color) passes through the
+`markdown` package unchanged.
 - `> [!TYPE]` admonition      -> <div data-type="panel-{type}">, re-converting
                                  the (possibly edited) inner markdown back to
                                  HTML
@@ -54,11 +61,12 @@ EXPAND_RE = re.compile(
     re.DOTALL,
 )
 LAYOUT_RE = re.compile(
-    r"<!-- Confluence layout section start -->\n"
+    r"<!-- Confluence layout section start(?:: (?P<type>[\w-]+))? -->\n"
     r"(?P<inner>.*?)\n"
     r"<!-- Confluence layout section end -->\n?",
     re.DOTALL,
 )
+LAYOUT_COLUMN_RE = re.compile(r"<!-- Confluence layout column: (?P<width>[\d.]*) -->\n?")
 PANEL_RE = re.compile(
     r"^> \[!(?P<type>[A-Z]+)\]\n(?P<body>(?:>.*(?:\n|$))*)",
     re.MULTILINE,
@@ -155,7 +163,7 @@ def _replace_images(text: str, replacements: dict) -> str:
 def _replace_expand(text: str, replacements: dict) -> str:
     def repl(match: re.Match) -> str:
         title = match.group("title")
-        inner_html = convert_fragment(match.group("inner"))
+        inner_html = convert(match.group("inner"))
         token = _token()
         replacements[token] = f"<details><summary>{title}</summary>{inner_html}</details>"
         return token
@@ -163,19 +171,33 @@ def _replace_expand(text: str, replacements: dict) -> str:
     return EXPAND_RE.sub(repl, text)
 
 
+def _split_layout_columns(inner: str) -> list:
+    """(width, markdown) per column. Each column starts with its column
+    marker; a file without markers takes one column per paragraph, with
+    equal widths."""
+    markers = list(LAYOUT_COLUMN_RE.finditer(inner))
+    if not markers:
+        columns = [c for c in inner.split("\n\n") if c.strip()] or [""]
+        width = str(round(100 / len(columns), 2))
+        return [(width, col) for col in columns]
+    columns = []
+    for i, marker in enumerate(markers):
+        end = markers[i + 1].start() if i + 1 < len(markers) else len(inner)
+        columns.append((marker.group("width"), inner[marker.end():end].strip("\n")))
+    return columns
+
+
 def _replace_layout(text: str, replacements: dict) -> str:
     def repl(match: re.Match) -> str:
-        inner = match.group("inner")
-        columns = [c for c in inner.split("\n\n") if c.strip()] if inner.strip() else []
-        if not columns:
-            columns = [""]
-        layout_type = {2: "layout-two-equal", 3: "layout-three-equal"}.get(
-            len(columns), f"layout-{len(columns)}-equal"
-        )
-        width = round(100 / len(columns), 2)
+        columns = _split_layout_columns(match.group("inner"))
+        layout_type = match.group("type") or {
+            2: "layout-two-equal", 3: "layout-three-equal"
+        }.get(len(columns), f"layout-{len(columns)}-equal")
         cols_html = "".join(
-            f'<div data-type="column" data-width="{width}">{convert_fragment(col)}</div>'
-            for col in columns
+            '<div data-type="column"'
+            + (f' data-width="{width}"' if width else "")
+            + f">{convert(col)}</div>"
+            for width, col in columns
         )
         token = _token()
         replacements[token] = f'<section data-type="{layout_type}">{cols_html}</section>'
@@ -195,7 +217,7 @@ def _replace_panels(text: str, replacements: dict) -> str:
                 lines.append(line[1:])
             else:
                 lines.append(line)
-        inner_html = convert_fragment("\n".join(lines))
+        inner_html = convert("\n".join(lines))
         token = _token()
         replacements[token] = f'<div data-type="panel-{panel_type}">{inner_html}</div>'
         return token
@@ -219,7 +241,10 @@ def convert(markdown_text: str) -> str:
     text = re.sub(r"\n?(CONFSENTINEL[0-9a-f]{32})\n?", r"\n\n\1\n\n", text)
 
     html = convert_fragment(text)
-    for token, resolved in replacements.items():
+    # Resolve in reverse: a container's replacement can hold tokens created
+    # before it (e.g. an expand inside a layout column), which must be
+    # resolved after it.
+    for token, resolved in reversed(list(replacements.items())):
         html = html.replace(token, resolved)
         # markdown wraps stray tokens in <p>...</p> when they sit on their
         # own line/paragraph; unwrap that around our reconstructed nodes.

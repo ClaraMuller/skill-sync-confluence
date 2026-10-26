@@ -18,9 +18,9 @@ Let add titles
 
 Let’s write some text
 
-Confluence can write test in **bold**, *italic*, ~~striked~~ or underlined !!
+Confluence can write test in **bold**, *italic*, ~~striked~~ or <u>underlined</u> !!
 
-Confluence allows to write September 1, 2026
+Confluence allows to write <time datetime="2026-09-01">September 1, 2026</time>
 
 ---
 
@@ -102,11 +102,12 @@ This is test into an extant block
 
 ---
 
-<!-- Confluence layout section start -->
+<!-- Confluence layout section start: layout-three-equal -->
+<!-- Confluence layout column: 33.33 -->
 Layout 1
-
+<!-- Confluence layout column: 33.33 -->
 Layout 2
-
+<!-- Confluence layout column: 33.33 -->
 Layout 3
 <!-- Confluence layout section end -->
 

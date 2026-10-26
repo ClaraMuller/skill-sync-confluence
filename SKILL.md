@@ -104,9 +104,8 @@ the candidate markdown:
 python3 scripts/confluence_to_markdown.py --input <page.html> --output <candidate.md>
 ```
 
-Review the output for anything outside expand sections / images / layouts /
-panels / task lists / the table-of-contents macro that came out looking wrong
-— those 6 are handled explicitly by the script (see Step 5's Pull bullet);
+Review the output for anything outside the elements the script handles
+explicitly (see Step 5's Pull bullet) that came out looking wrong;
 anything else falls back to the underlying `html-to-markdown` library's
 default rendering and may need a manual touch-up before it's shown to the
 user.
@@ -141,8 +140,8 @@ when Step 2 pointed to an obvious direction.
   other local-only front-matter unless the user says to drop them.
 
   **Non-representable Confluence content** is handled automatically by the
-  script for 6 element types — verify the result looks right rather than
-  hand-writing these:
+  script for the element types below — verify the result looks right rather
+  than hand-writing these:
 
   - **Table of contents macro** and **pictures/images** have no
     markdown-representable content of their own, so each becomes a single
@@ -162,10 +161,27 @@ when Step 2 pointed to an obvious direction.
     ```
 
     ```
-    <!-- Confluence layout section start -->
-    ...converted inner content (one block per column)...
+    <!-- Confluence layout section start: <layout type, e.g. layout-two-equal> -->
+    <!-- Confluence layout column: <width, e.g. 50> -->
+    ...converted content of column 1...
+    <!-- Confluence layout column: <width> -->
+    ...converted content of column 2...
     <!-- Confluence layout section end -->
     ```
+
+    Each column starts with its own marker, so a column can hold several
+    paragraphs. Expand sections, layouts and panels can nest in each other.
+
+  - **Complex tables** (a merged cell, or a list, code block or several
+    paragraphs in a cell) can't be a markdown table, so they stay as the
+    original Confluence HTML (without `data-local-id`). Edit their text as
+    HTML.
+
+  - **Inline elements markdown can't express** stay as raw inline HTML
+    inside the paragraph: underline (`<u>`), dates (`<time datetime>`), and
+    any `<span>` with a `data-type` (mentions, status, emoji) or a `style`
+    (text color). For example `<u>underlined</u>` or
+    `<time datetime="2026-09-01">September 1, 2026</time>`.
 
   - **Panels** (note/info/warning/success/error) also contain
     markdown-representable inner content, so they're converted the same way
@@ -197,7 +213,7 @@ when Step 2 pointed to an obvious direction.
     plain bullet.
 
   Anything the script doesn't recognize (any Confluence element outside
-  these 6 types) is left to `html-to-markdown`'s default rendering — flag it
+  these types) is left to `html-to-markdown`'s default rendering — flag it
   by hand if it looks lossy, per Step 3.
 
 - **Push (local → Confluence):** run `scripts/markdown_to_confluence.py` on
@@ -242,8 +258,9 @@ matches the page on pull). Don't create a separate report file.
 - `references/confluence-export-example.html` and
   `references/confluence-export-example.md` are a worked example of every
   supported element (TOC, separators, headings, rich text, a date, tables,
-  syntax-highlighted code blocks, an expand section, lists, an image, a
-  3-column layout, 3 panel types, a blockquote, and a task list)
+  syntax-highlighted code blocks, code block settings, an expand section,
+  lists, an image, a 3-column layout, 3 panel types, a blockquote, and a
+  task list)
   round-tripped through both scripts — use them to sanity check the scripts
   still behave after any change.
 
@@ -257,18 +274,15 @@ next push. Step 3's markdown diff does not show these losses.
 | Confluence element             | Lost on pull (Confluence → markdown)                     | Result on the page after a push                       |
 |--------------------------------|----------------------------------------------------------|-------------------------------------------------------|
 | Unknown macros (e.g. Jira)     | Whole macro, silently (no placeholder)                   | Macro deleted                                         |
-| Layout sections                | Column boundaries and layout type                        | One column per paragraph, always `layout-three-equal` |
-| Mentions                       | Account id; kept as plain `@Name` text                   | Plain text, no longer a mention                       |
-| Status lozenge                 | Macro and color; kept as plain text                      | Plain text                                            |
-| Merged table cells (`colspan`) | Merge; becomes an extra empty cell                       | Unmerged cells                                        |
-| List inside a table cell       | Bullets; flattened to plain text                         | Plain text in the cell                                |
-| Table layout                   | `data-width`, column widths, `<p>` in cells              | Default widths                                        |
+| Simple table layout            | `data-width`, column widths, `<p>` in cells              | Default widths                                        |
 | Code block settings            | `data-wrap`, `data-hide-line-numbers`, breakout width    | Default settings (language is kept)                   |
 | Table of contents macro        | Macro parameters (style, macro id)                       | Fresh TOC macro with defaults                         |
 | Images                         | Caption, size, collection; kept as a placeholder comment | Caption replaced by the alt text, default size        |
-| Expand sections                | Breakout width                                           | Default width                                         |
-| Text color                     | Color                                                    | Default color                                         |
-| Underline (`<u>`)              | Underline                                                | Plain text                                            |
-| Dates (`<time datetime>`)      | `datetime` attribute; kept as display text               | Plain text, no longer a date                          |
-| Emoji                          | Short name; kept as the Unicode character                | Unicode character                                     |
+| Expand and layout sections     | Breakout width                                           | Default width                                         |
+| Nested lists                   | Nothing (kept as an indented sub-list)                   | Sub-list flattened into the parent list               |
 | Every node                     | `data-local-id`                                          | New ids, so inline comments lose their anchors        |
+
+Layouts (type, columns, widths), merged cells, lists in table cells,
+mentions, status, emoji, text color, underline and dates round-trip
+losslessly. The real Confluence markup for mentions, status and emoji
+hasn't been checked against a live page yet.

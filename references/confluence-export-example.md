@@ -20,6 +20,8 @@ Let’s write some text
 
 Confluence can write test in **bold**, *italic*, ~~striked~~ or underlined !!
 
+Confluence allows to write September 1, 2026
+
 ---
 
 Let’s create a table
@@ -47,6 +49,27 @@ This code block is in go
 
 ```
 No style code block
+```
+
+---
+
+Code block configuration
+
+```
+Code block with no line
+line 1
+line 2
+line 3
+```
+
+```
+Code block with line and no wrap
+line very loooooooooooooooooooooooonnnnnnnnnnnnnggggg with a lot of little words. This line is too long to be visible entierely
+```
+
+```
+Code block with line and wrap
+line very loooooooooooooooooooooooonnnnnnnnnnnnnggggg with a lot of little words. This line is too long to be visible entierely
 ```
 
 ---
@@ -102,3 +125,10 @@ Layout 3
 
 I want to quote something
 > This is a quote
+---
+
+I want to propose a multiple choices for a choice:
+
+- [ ] Option 1
+- [ ] Option 2
+- [ ] Option 3

@@ -6,9 +6,7 @@ description: >
   Use when the user asks to "sync with Confluence", "fetch updates from
   Confluence", "pull the latest from Confluence", "apply changes [to
   Confluence]", or otherwise wants a local .md file and its Confluence
-  counterpart brought back in line. Works for any linked file, RFCs
-  included — but for the RFC multi-pass review/editing workflow itself, use
-  `alg-rfc-edit` instead.
+  counterpart brought back in line. Works for any linked file.
 metadata:
   author: clara.muller
   model: low
@@ -24,17 +22,19 @@ syncing from whichever side changed more recently.
 - Trigger: "sync with Confluence", "fetch updates from Confluence", "pull
   the latest from Confluence", "apply changes [to Confluence]".
 - Trigger: the user references a local `.md` file that is (or should be)
-  linked to a Confluence page — including an RFC doc, as long as the intent
-  is a plain sync rather than the multi-pass RFC review/editing workflow
-  (`alg-rfc-edit`).
+  linked to a Confluence page, and wants the two brought back in line.
 - **Do NOT use** for a one-off read of a Confluence page with no local file
-  involved — call the Confluence MCP tools directly instead.
+  involved — call the Atlassian MCP v2 Confluence tools directly instead.
 
 ## Prerequisites
 
-- The Confluence MCP server must be available (tools like `getConfluencePage`
-  / `updateConfluencePage` present in the tool list). If it isn't, stop and
-  tell the user the skill can't run without it.
+- The Atlassian MCP v2 server must be available (tools
+  `mcp__claude_ai_Atlassian_MCP__getConfluenceContent` /
+  `updateConfluenceContent` present in the tool list; the legacy
+  `Confluence_MCP` connector no longer works). If it isn't, stop and tell the
+  user the skill can't run without it.
+- Every v2 call needs a top-level `cloudId`. Call
+  `getAccessibleAtlassianResources` once per session and reuse the result.
 - This skill never creates the md file or the Confluence page — the user is
   responsible for creating both. If either doesn't exist, stop and ask the
   user to create it rather than creating it yourself.
@@ -42,13 +42,15 @@ syncing from whichever side changed more recently.
   `scripts/markdown_to_confluence.py`) require the
   [`html-to-markdown`](https://pypi.org/project/html-to-markdown/) package
   (plus `beautifulsoup4` and `markdown`, used for the Confluence-specific
-  pre/post-processing). Check with:
+  pre/post-processing), at the versions pinned in `requirements.txt`. Check
+  with:
   ```
-  pip list | grep html-to-markdown
+  pip list | grep -i -E "html-to-markdown|beautifulsoup4|markdown"
   ```
-  If that comes back empty, stop and tell the user to run
-  `pip install html-to-markdown beautifulsoup4 markdown` before continuing —
-  don't try to guess a workaround.
+  If a package is missing or its version differs from `requirements.txt`,
+  stop and tell the user to run
+  `pip install -r <skill_dir>/requirements.txt` before continuing — don't
+  try to guess a workaround.
 
 ## Inputs
 
@@ -75,10 +77,11 @@ form:
    ```
    stat -f '%m' <local_file>      # macOS: epoch seconds
    ```
-2. Fetch the page with `getConfluencePage` and read its last-modified
-   timestamp from the response (the version/history metadata, e.g.
-   `version.when` — inspect the actual response shape, field names can vary
-   by server version).
+2. Fetch the page with `getConfluenceContent` (`content_url` = the sync
+   link, `content_format: "html"`, `detail: "full"`) and read its
+   last-modified timestamp from `metadata.version.createdAt`. Keep the
+   top-level `snapshotToken` (e.g. `"v:12"`) from the same response — the push
+   needs it.
 3. Compare the two timestamps:
    - **Clearly later on Confluence** → direction is **pull** (Confluence →
      local).
@@ -91,10 +94,10 @@ form:
 
 ## Step 3 — Show the direct diff before applying anything
 
-Fetch the page with `contentFormat: "html"` (not the default format —
-the default flattens expand sections, layouts, and images into plain text
-with no structure, which loses exactly the elements this skill needs to
-preserve). Run that HTML through `scripts/confluence_to_markdown.py` to get
+Use the page HTML fetched in Step 2 (`content_format: "html"` with
+`detail: "full"` — the default `detail` is a summary with no body, and a
+non-HTML format loses exactly the elements this skill needs to preserve).
+Save `body.value` to a file and run that HTML through `scripts/confluence_to_markdown.py` to get
 the candidate markdown:
 
 ```
@@ -102,10 +105,11 @@ python3 scripts/confluence_to_markdown.py --input <page.html> --output <candidat
 ```
 
 Review the output for anything outside expand sections / images / layouts /
-panels / the table-of-contents macro that came out looking wrong — those 5
-are handled explicitly by the script (see Step 5's Pull bullet); anything else
-falls back to the underlying `html-to-markdown` library's default rendering
-and may need a manual touch-up before it's shown to the user.
+panels / task lists / the table-of-contents macro that came out looking wrong
+— those 6 are handled explicitly by the script (see Step 5's Pull bullet);
+anything else falls back to the underlying `html-to-markdown` library's
+default rendering and may need a manual touch-up before it's shown to the
+user.
 
 Then write both versions (the current local file, and the candidate
 markdown) to two temp files, and run a real colored diff and show its
@@ -137,7 +141,7 @@ when Step 2 pointed to an obvious direction.
   other local-only front-matter unless the user says to drop them.
 
   **Non-representable Confluence content** is handled automatically by the
-  script for 5 element types — verify the result looks right rather than
+  script for 6 element types — verify the result looks right rather than
   hand-writing these:
 
   - **Table of contents macro** and **pictures/images** have no
@@ -178,27 +182,48 @@ when Step 2 pointed to an obvious direction.
     blockquote (Confluence's `<blockquote>`, which already converts cleanly
     both ways) — not a panel, and needs no special handling.
 
+  - **Task lists** round-trip as GitHub-style checkbox items, one per line:
+
+    ```
+    - [ ] Not done
+    - [x] Done
+    ```
+
+    On push, `scripts/markdown_to_confluence.py` reconstructs
+    `<ul data-type="task-list"><li data-type="task-item"><input
+    type="checkbox" checked> ...</li></ul>` (the `checked` attribute only on
+    `[x]` items) — the underlying `markdown` package has no built-in
+    checklist support and would otherwise leave the literal `[ ] ` text in a
+    plain bullet.
+
   Anything the script doesn't recognize (any Confluence element outside
-  these 5 types) is left to `html-to-markdown`'s default rendering — flag it
+  these 6 types) is left to `html-to-markdown`'s default rendering — flag it
   by hand if it looks lossy, per Step 3.
 
 - **Push (local → Confluence):** run `scripts/markdown_to_confluence.py` on
-  the local file to get the HTML body — this reads the same 5 markers back
+  the local file to get the HTML body — this reads the same markers back
   and reconstructs the original `<details>`/`<section>`/`<figure>`/TOC/panel
   nodes (using any local edits to their inner content) instead of losing
   them:
   ```
   python3 scripts/markdown_to_confluence.py --input <local_file> --output <body.html>
   ```
-  Then call `updateConfluencePage` with `contentFormat: "html"`, that body,
-  and the `version` number read in Step 2 (Confluence requires the version
-  to increment by exactly one).
+  Then:
+  1. Once per session, before the first write, call `getConfluenceSpace`
+     (via `executeRead`, `inputs: {spaceIdOrKey}`) and apply any
+     `spaceInstructions` it returns. Skip it when the Step 2 response has
+     `metadata.hasSpaceInstructions: false`.
+  2. Call `updateConfluenceContent` with `contentId`, `body: {format:
+     "html", value: <body.html>}` and the `snapshotToken` from Step 2.
+  3. If it fails with `snapshot_stale`, the page changed since Step 2: re-read
+     it, redo Step 3's diff and Step 4's confirmation, then retry with the
+     new token. Never resend the same payload with the stale token.
 
 ## Output
 
 A short report: which direction was synced (and why — which side was more
 recent, or that the user chose), the diff that was applied, and the result
-(new Confluence page version on push; confirmation the local file now
+(new `snapshotToken` / version number on push; confirmation the local file now
 matches the page on pull). Don't create a separate report file.
 
 ## Notes & guardrails
@@ -208,7 +233,7 @@ matches the page on pull). Don't create a separate report file.
   if they want to.
 - Never create the md file or the Confluence page yourself — only sync
   between two things that already exist.
-- If the Confluence MCP server isn't available, or the page URL doesn't
+- If the Atlassian MCP v2 server isn't available, or the page URL doesn't
   resolve, stop and say so rather than guessing.
 - This skill is low-effort by design (`metadata.model: low`): all its steps
   are mechanical (timestamp comparison, diffing, applying an edit or a page
@@ -216,12 +241,34 @@ matches the page on pull). Don't create a separate report file.
   low-effort/low-cost model rather than a higher one.
 - `references/confluence-export-example.html` and
   `references/confluence-export-example.md` are a worked example of every
-  supported element (TOC, separators, headings, rich text, tables,
+  supported element (TOC, separators, headings, rich text, a date, tables,
   syntax-highlighted code blocks, an expand section, lists, an image, a
-  3-column layout, 3 panel types, and a blockquote) round-tripped through
-  both scripts — use them to sanity check the scripts still behave after
-  any change.
-- Known limitation: underline (`<u>`) has no markdown equivalent and is
-  silently dropped by the underlying `html-to-markdown` library on pull —
-  this is accepted, since underline isn't one of the 5 explicitly handled
-  element types.
+  3-column layout, 3 panel types, a blockquote, and a task list)
+  round-tripped through both scripts — use them to sanity check the scripts
+  still behave after any change.
+
+## Known limitations
+
+What the conversion loses, verified with `html-to-markdown` 3.18.6 against
+the reference page and a round trip (pull, then push). A push re-sends the
+whole body, so anything lost on pull is also removed from the page on the
+next push. Step 3's markdown diff does not show these losses.
+
+| Confluence element             | Lost on pull (Confluence → markdown)                     | Result on the page after a push                       |
+|--------------------------------|----------------------------------------------------------|-------------------------------------------------------|
+| Unknown macros (e.g. Jira)     | Whole macro, silently (no placeholder)                   | Macro deleted                                         |
+| Layout sections                | Column boundaries and layout type                        | One column per paragraph, always `layout-three-equal` |
+| Mentions                       | Account id; kept as plain `@Name` text                   | Plain text, no longer a mention                       |
+| Status lozenge                 | Macro and color; kept as plain text                      | Plain text                                            |
+| Merged table cells (`colspan`) | Merge; becomes an extra empty cell                       | Unmerged cells                                        |
+| List inside a table cell       | Bullets; flattened to plain text                         | Plain text in the cell                                |
+| Table layout                   | `data-width`, column widths, `<p>` in cells              | Default widths                                        |
+| Code block settings            | `data-wrap`, `data-hide-line-numbers`, breakout width    | Default settings (language is kept)                   |
+| Table of contents macro        | Macro parameters (style, macro id)                       | Fresh TOC macro with defaults                         |
+| Images                         | Caption, size, collection; kept as a placeholder comment | Caption replaced by the alt text, default size        |
+| Expand sections                | Breakout width                                           | Default width                                         |
+| Text color                     | Color                                                    | Default color                                         |
+| Underline (`<u>`)              | Underline                                                | Plain text                                            |
+| Dates (`<time datetime>`)      | `datetime` attribute; kept as display text               | Plain text, no longer a date                          |
+| Emoji                          | Short name; kept as the Unicode character                | Unicode character                                     |
+| Every node                     | `data-local-id`                                          | New ids, so inline comments lose their anchors        |

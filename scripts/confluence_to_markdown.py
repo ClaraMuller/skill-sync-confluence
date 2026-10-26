@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert Confluence HTML+ (contentFormat="html" from getConfluencePage) to markdown.
+"""Convert Confluence HTML+ (content_format="html" from getConfluenceContent) to markdown.
 
 Standard elements (headings, bold/italic/strike, tables, lists, hr, fenced
 code with language, blockquotes) are delegated to the `html-to-markdown`

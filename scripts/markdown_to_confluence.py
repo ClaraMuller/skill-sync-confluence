@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Convert a local markdown file (produced by confluence_to_markdown.py, or
 hand-edited from it) back into Confluence HTML+ suitable for
-updateConfluencePage with contentFormat="html".
+updateConfluenceContent with body format "html".
 
-Reverses the 5 special-case markers that confluence_to_markdown.py inserts,
+Reverses the 6 special-case markers that confluence_to_markdown.py inserts,
 reconstructing the original Confluence node instead of losing it:
 
 - table of contents comment -> fresh TOC extension div
@@ -17,6 +17,12 @@ reconstructing the original Confluence node instead of losing it:
 - `> [!TYPE]` admonition      -> <div data-type="panel-{type}">, re-converting
                                  the (possibly edited) inner markdown back to
                                  HTML
+- `- [ ] `/`- [x] ` items     -> <ul data-type="task-list"><li
+                                 data-type="task-item">...</li></ul>, since
+                                 the `markdown` package has no built-in
+                                 checklist extension and would otherwise
+                                 leave the literal "[ ] " text in a plain
+                                 bullet
 
 Everything else is converted with the `markdown` package (tables +
 fenced_code extensions).
@@ -61,6 +67,8 @@ PANEL_RE = re.compile(
 
 _LIST_BOUNDARY = "CONFLISTBOUNDARY" + "0" * 16
 _STRIKETHROUGH_RE = re.compile(r"~~(.+?)~~")
+_TASK_ITEM_RE = re.compile(r"^- \[(?P<check>[ xX])\] (?P<text>.*)$")
+_TASK_BLOCK_RE = re.compile(r"(?:^- \[[ xX]\] .*$\n?)+", re.MULTILINE)
 
 
 def _insert_list_boundaries(text: str) -> str:
@@ -74,16 +82,40 @@ def _insert_list_boundaries(text: str) -> str:
     return text
 
 
+def _replace_tasklists(text: str, replacements: dict) -> str:
+    def repl(match: re.Match) -> str:
+        items = []
+        for line in match.group(0).splitlines():
+            item = _TASK_ITEM_RE.match(line)
+            if not item:
+                continue
+            checked = " checked" if item.group("check").lower() == "x" else ""
+            items.append(
+                f'<li data-type="task-item"><input type="checkbox"{checked}> '
+                f'{item.group("text")}</li>'
+            )
+        token = _token()
+        replacements[token] = '<ul data-type="task-list">' + "".join(items) + "</ul>"
+        return token
+
+    return _TASK_BLOCK_RE.sub(repl, text)
+
+
 def convert_fragment(markdown_text: str) -> str:
     """Convert a plain markdown fragment (no special markers expected) to HTML."""
     if not markdown_text.strip():
         return ""
     text = _STRIKETHROUGH_RE.sub(r"<s>\1</s>", markdown_text)
     text = _insert_list_boundaries(text)
+    task_replacements: dict = {}
+    text = _replace_tasklists(text, task_replacements)
     html = md_lib.markdown(text, extensions=["tables", "fenced_code"])
     html = html.replace(f"<!--{_LIST_BOUNDARY}-->\n\n", "").replace(
         f"<!--{_LIST_BOUNDARY}-->", ""
     )
+    for token, resolved in task_replacements.items():
+        html = html.replace(f"<p>{token}</p>", resolved)
+        html = html.replace(token, resolved)
     return html
 
 
